@@ -1,322 +1,29 @@
 # -*- encoding: utf-8 -*-
 
-import pandas as pd
 import numpy as np
 from matplotlib import pyplot as plt
-from statsmodels.tsa.stattools import adfuller
-from statsmodels.tsa.arima_model import ARIMA
 
-from keras.models import Sequential, Model
-from keras.layers.recurrent import LSTM, GRU
-from keras.layers import Reshape, Highway, Dense, Dropout, BatchNormalization, MaxoutDense, Input, merge, Activation, GaussianDropout, Lambda
+from keras.models import Sequential
+from keras.layers.recurrent import GRU
+from keras.layers import Reshape, Highway, Dense, MaxoutDense, Input, Activation, GaussianDropout, Lambda
 from keras.layers.normalization import BatchNormalization
 from keras.layers.noise import GaussianNoise
-from keras.regularizers import l1l2, activity_l1l2, l2, activity_l2
-from keras.optimizers import RMSprop, Adam, Adamax, SGD, Adadelta
-from keras.layers.advanced_activations import PReLU, ParametricSoftplus
+from keras.regularizers import l2, activity_l2
+from keras.optimizers import RMSprop, Adam, Adamax, Adadelta
 from keras.callbacks import EarlyStopping, ModelCheckpoint
 from keras.utils.visualize_util import plot
 from keras import backend as K
+from keras.models import model_from_json
 
-from sklearn.metrics import confusion_matrix, classification_report, r2_score
-from sklearn.metrics.pairwise import cosine_similarity, cosine_distances
-from scipy.signal import argrelextrema
-from scipy.stats import kurtosis, skew, entropy
-from scipy.special import erf
-from scipy.spatial.distance import cosine
+from sklearn.metrics import confusion_matrix, classification_report
 
-from os.path import join, expanduser, exists
+from os.path import join, exists
 from os import mkdir, listdir
 from shutil import copyfile
-from itertools import izip as zip
-import pickle, json
-from functools import partial
+import json
 import sys
 
 import dataworker as dw
-import wavelet as wv
-
-def model_ARIMA(data, xshape, batch_size=8, sign=True, nb_epoch=100, opt='adam', lr=.0001, loss='mae'):
-
-    learn_X, learn_Y, valid_X, valid_Y, test_X, test_Y = _data_2D(data)
-
-    learn = np.hstack((learn_X, learn_Y))
-    valid = np.hstack((valid_X, valid_Y))
-    test = np.hstack((test_X, test_Y))
-
-    # learn = np.array((map(np.vstack, zip(
-    #     learn[:, :-3],
-    #     learn[:, 1:-2],
-    #     learn[:, 2:-1],
-    #     learn[:, 3:]
-    # ))))
-    # valid = np.array((map(np.vstack, zip(
-    #     valid[:, :-3],
-    #     valid[:, 1:-2],
-    #     valid[:, 2:-1],
-    #     valid[:, 3:]
-    # ))))
-    # test = np.array((map(np.vstack, zip(
-    #     test[:, :-3],
-    #     test[:, 1:-2],
-    #     test[:, 2:-1],
-    #     test[:, 3:]
-    # ))))
-    #
-    # learn = learn[:,np.newaxis,:]
-    # valid = valid[:,np.newaxis,:]
-    # test = test[:,np.newaxis,:]
-    #
-    #
-    # learn_X = learn[:, :, -(xshape+1):-1]
-    # learn_Y = learn[:, :, -xshape:]
-    # valid_X = valid[:, :, -(xshape+1):-1]
-    # valid_Y = valid[:, :, -xshape:]
-    # test_X = test[:, :, -(xshape+1):-1]
-    # test_Y = test[:, :, -xshape:]
-    #
-    # learn_X = np.squeeze(learn_X)
-    # valid_X = np.squeeze(valid_X)
-    # test_X = np.squeeze(test_X)
-    #
-    # learn_Y = np.squeeze(learn_Y)
-    # valid_Y = np.squeeze(valid_Y)
-    # test_Y = np.squeeze(test_Y)
-
-    input0 = Input(shape=(1, xshape), name='input_0')
-    input1 = Input(shape=(xshape, ), name='input_1')
-    input2 = Input(shape=(xshape, ), name='input_2')
-    input3 = Input(shape=(xshape, ), name='input_3')
-
-    gru1 = GRU(output_dim=xshape,
-                  W_regularizer=l1l2(.05, .05),
-                  U_regularizer=l1l2(.05, .05),
-                  b_regularizer=l1l2(.05, .05),
-                  unroll=False,
-                  init='normal',
-                  inner_activation='sigmoid',
-                  activation='tanh',
-               #return_sequences=True
-                  )(input0)
-
-    merge10 = merge([gru1, input1], mode='sum', name='merge10')
-    merge11 = merge([gru1, merge10], mode='concat', concat_axis=1, name='merge11')
-    out1    = Reshape((2, xshape))(merge11)
-
-    gru2 = GRU(output_dim=xshape,
-                  W_regularizer=l1l2(.05, .05),
-                  U_regularizer=l1l2(.05, .05),
-                  b_regularizer=l1l2(.05, .05),
-                  unroll=False,
-                  init='normal',
-                  inner_activation='sigmoid',
-                  activation='tanh',
-               #return_sequences=True
-                  )(out1)
-
-    merge20 = merge([gru2, input2], mode='sum', name='merge20')
-    merge21 = merge([gru2, merge20], mode='concat', concat_axis=1, name='merge21')
-    out2    = Reshape((2, xshape))(merge21)
-
-    gru3 = GRU(output_dim=xshape,
-               W_regularizer=l1l2(.05, .05),
-               U_regularizer=l1l2(.05, .05),
-               b_regularizer=l1l2(.05, .05),
-               unroll=False,
-               init='normal',
-               inner_activation='sigmoid',
-               activation='tanh',
-               #return_sequences=True
-               )(out2)
-
-    merge30 = merge([gru3, input3], mode='sum', name='merge30')
-    merge31 = merge([gru3, merge30], mode='concat', concat_axis=1, name='merge31')
-    out3    = Reshape((2, xshape))(merge31)
-
-    output = GRU(output_dim=1,
-               W_regularizer=l1l2(.05, .05),
-               U_regularizer=l1l2(.05, .05),
-               b_regularizer=l1l2(.05, .05),
-               unroll=False,
-               init='normal',
-               inner_activation='sigmoid',
-               activation='linear',
-               #return_sequences=True
-               )(out3)
-
-    last = learn[:, 3:] - np.hstack((np.zeros(learn[:,3:-1].shape), learn[:, np.newaxis,-1]))
-    model = Model(input=[input0, input1, input2, input3], output=output)
-    if opt == 'adam':
-        model.compile(optimizer=Adam(lr=lr), loss=loss)
-    elif opt == 'adadelta':
-        model.compile(optimizer=Adadelta(lr=lr), loss=loss)
-    elif opt == 'adamax':
-        model.compile(optimizer=Adamax(lr=lr), loss=loss)
-    elif opt == 'rmsprop':
-        model.compile(optimizer=RMSprop(lr=lr), loss=loss)
-    model.fit([learn[:, np.newaxis, :-3], -learn[:, 1:-2], -learn[:, 2:-1], -last], learn_Y, nb_epoch=nb_epoch,
-              callbacks=[EarlyStopping(patience=20)]
-              )
-    pred = model.predict([valid[:, np.newaxis, :-3], -valid[:, 1:-2], -valid[:, 2:-1], -last])
-
-    print pred[:10]
-    print pred.shape
-
-    y = np.squeeze(valid_Y)
-    p = np.squeeze(pred)
-    print 'mse ', np.mean((y - p) ** 2)
-    print 'rmse ', np.sqrt(np.mean((y - p) ** 2))
-    print 'mae ', np.mean(abs(y - p))
-
-    plt.plot(y, p, 'ro')
-    plt.show()
-
-    # model.add(BatchNormalization(input_shape=(learn_X.shape[1],)))
-    # model.add(Dense(learn_X.shape[1]))
-    # for _ in range(19):
-    #     model.add(Highway(W_regularizer=l1l2(.005, .005),
-    #                       activity_regularizer=activity_l1l2(.005, .005),
-    #                       b_regularizer=l1l2(.005, .005),
-    #                       init='normal',
-    #                       activation='relu',
-    #                       transform_bias=-3
-    #                       ))
-    # model.add(GRU(output_dim=learn_X.shape[2],
-    #               #input_shape=(learn_X.shape[1], learn_X.shape[2]),
-    #               W_regularizer=l1l2(.05, .05),
-    #               U_regularizer=l1l2(.05, .05),
-    #               b_regularizer=l1l2(.05, .05),
-    #               unroll=False,
-    #               init='normal',
-    #               inner_activation='hard_sigmoid',
-    #               activation='linear',
-    #               return_sequences=True
-    #               ))
-    # model.add(GRU(output_dim=learn_X.shape[2],
-    #               #input_shape=(learn_X.shape[1], learn_X.shape[2]),
-    #               W_regularizer=l1l2(.05, .05),
-    #               U_regularizer=l1l2(.05, .05),
-    #               b_regularizer=l1l2(.05, .05),
-    #               unroll=False,
-    #               init='normal',
-    #               inner_activation='hard_sigmoid',
-    #               activation='linear',
-    #               return_sequences=True
-    #               ))
-    # model.add(GRU(output_dim=learn_X.shape[2],
-    #               #input_shape=(learn_X.shape[1], learn_X.shape[2]),
-    #               W_regularizer=l1l2(.05, .05),
-    #               U_regularizer=l1l2(.05, .05),
-    #               b_regularizer=l1l2(.05, .05),
-    #               unroll=False,
-    #               init='normal',
-    #               inner_activation='hard_sigmoid',
-    #               activation='linear',
-    #               #return_sequences=True
-    #               ))
-
-    # if opt == 'adam':
-    #     model.compile(optimizer=Adam(lr=lr), loss=loss)
-    # elif opt == 'adadelta':
-    #     model.compile(optimizer=Adadelta(lr=lr), loss=loss)
-    # elif opt == 'adamax':
-    #     model.compile(optimizer=Adamax(lr=lr), loss=loss)
-    # elif opt == 'rmsprop':
-    #     model.compile(optimizer=RMSprop(lr=lr), loss=loss)
-    # model.fit(learn_X, learn_Y, nb_epoch=nb_epoch, batch_size=batch_size, verbose=2, validation_data=(valid_X, valid_Y),
-    #           callbacks=[EarlyStopping(patience=20)]
-    #           )
-    #
-    # prediction = model.predict(test_X, batch_size=batch_size)
-    #
-    # d = cosine_distances(test_Y, prediction)
-    # s = cosine_similarity(test_Y, prediction)
-    # print d
-    # print s
-    # print test_Y[:5]
-    # print prediction[:5]
-    # print test_Y[-5:]
-    # print prediction[-5:]
-
-def levels(x):
-    n = 1
-    for symbol in ['CL', 'GC', 'SP', 'ZW', 'NG', 'HG', 'SB']:
-        data = _data(symbol)
-        data = _to_week(data)
-        data = data.sort_index()
-        cdata = np.cumsum(data)
-        close = cdata.Close
-        gc = close.ix[argrelextrema(close.as_matrix(), np.greater)]
-        lc = close.ix[argrelextrema(close.as_matrix(), np.less)]
-        # i = 1
-        # while i < 6:
-        #     x = np.array([[v] for v in np.hstack((gc, lc))])
-        #     if x.shape[0] <= 200:
-        #         break
-        #     gc = gc.ix[argrelextrema(gc.as_matrix(), np.greater)]
-        #     lc = lc.ix[argrelextrema(lc.as_matrix(), np.less)]
-        #     i = i + 1
-        # obs = [np.array([[v] for v in close])]
-        obs = []
-        score = []
-        # afp = AffinityPropagation()
-        # lbls = afp.fit_predict(obs[0])
-        # score.append(silhouette_score(obs[0], lbls))
-        # print symbol, 0, len(afp.cluster_centers_), score[-1]
-        gc = close.ix[argrelextrema(close.as_matrix(), np.greater)]
-        lc = close.ix[argrelextrema(close.as_matrix(), np.less)]
-        i = 1
-        while i < 5:
-            x = np.array([[v] for v in np.hstack((gc, lc))])
-            if len(x) <= 2:
-                break;
-            obs.append(x)
-            gc = gc.ix[argrelextrema(gc.as_matrix(), np.greater)]
-            lc = lc.ix[argrelextrema(lc.as_matrix(), np.less)]
-            afp = AffinityPropagation()
-            lbls = afp.fit_predict(x)
-            score.append(silhouette_score(x, lbls))
-            print symbol, i, len(x), len(afp.cluster_centers_), score[-1]
-            if len(afp.cluster_centers_) >= 15:
-                obs.pop()
-                score.pop()
-            i = i + 1
-        print '=' * 30
-        afp = AffinityPropagation()
-        cobs = obs[np.argmin(score)]
-        afp.fit(cobs)
-        plt.figure(n)
-        plt.title(symbol)
-        plt.plot(cdata.Close, 'r')
-        mx = max(cobs)
-        cntrs = afp.cluster_centers_.tolist()
-        if abs(mx - max(cntrs)) >= .06:
-            cntrs.append(mx)
-        mn = min(cobs)
-        if abs(mx - min(cntrs)) >= .06:
-            cntrs.append(mn)
-        map(plt.axhline, cntrs)
-        # plt.draw()
-        plt.savefig(symbol + 'AFP2.png')
-        n = n + 1
-        # sc = []
-        # for c in range(5, 11, 1):
-        #     km = KMeans(n_clusters=c)
-        #     lbls = km.fit_predict(x)
-        #     sc.append(silhouette_score(x, lbls))
-        #
-        # c = np.argmin(sc) + 5
-        # print symbol, i, c, min(sc)
-        # km = KMeans(n_clusters=c)
-        # km.fit(x)
-        # plt.figure(n)
-        # plt.title(symbol)
-        # plt.plot(cdata.Close, 'r')
-        # map(plt.axhline, km.cluster_centers_)
-        # plt.savefig(symbol + '.png')
-        # n = n + 1
-
-        # plt.show()
 
 def _lcreator(layer):
     insh = {'input_shape' : layer.get('input_shape')} if layer.get('input_shape') is not None else {}
@@ -390,18 +97,29 @@ def simple_net(data, layers, **params):
     x = None
     if x_tag == 'Price':
         y_tag = 'Price'
-    elif x_tag in ['CWaves', 'Waves']:
+    elif x_tag == 'CWaves':
         x = params.get('x_lvl') if params.get('x_lvl') is not None else -1
         y_tag = params['y_tag']
         learn_X = data['learn'][x_tag][x]
         valid_X = data['valid'][x_tag][x]
         test_X = data['test'][x_tag][x]
+    elif x_tag == 'Waves':
+        x = params.get('x_lvl') if params.get('x_lvl') is not None else -1
+        p = params.get('wpart') if params.get('wpart') is not None else 'A'
+        y_tag = params['y_tag']
+        learn_X = data['learn'][x_tag][x][p]
+        valid_X = data['valid'][x_tag][x][p]
+        test_X = data['test'][x_tag][x][p]
     elif params.get('y_tag') is not None:
         y_tag = params['y_tag']
     else:
         raise Exception('y_tag was not assigned')
 
-    if x_tag not in ['CWaves', 'Waves']:
+    if x_tag == 'Stats':
+        learn_X = data['learn'][x_tag]
+        valid_X = data['valid'][x_tag]
+        test_X = data['test'][x_tag]
+    elif x_tag not in ['CWaves', 'Waves']:
         learn_X = data['learn'][x_tag]['x']
         valid_X = data['valid'][x_tag]['x']
         test_X = data['test'][x_tag]['x']
@@ -424,51 +142,6 @@ def simple_net(data, layers, **params):
             test_X = test_X[:, np.newaxis, :]
 
     layers[0]['input_shape'] = (learn_X.shape[1:])
-
-    if params.get('pretrain'):
-        def sampling(args):
-            z_mean, z_log_var = args
-            epsilon = K.random_normal(shape=K.shape(z_mean), mean=0.)
-            return z_mean + K.exp(z_log_var / 2) * epsilon
-
-        tmpl = []
-        for layer in layers:
-            l = {}
-            if 'input_shape' in layer.keys():
-                l['input_shape'] = layer.get('input_shape')
-            elif 'output_dim' in layer.keys():
-                l['input_shape'] = tmpl[-1].get('output_dim')
-            else:
-                continue
-            l['output_dim'] = layer.get('output_dim')
-            l['return_seq'] = layer.get('return_seq')
-            l['layer']      = layer.get('layer')
-            tmpl.append(l)
-        for layer in tmpl:
-            if 'output_dim' in layer.keys():
-                vae = Sequential()
-                if layer.get('layer') in ['gru', 'conv1d']:
-                    ishp = (1, layer.get('input_shape'),)
-                    oshp = (1, layer.get('output_dim'),)
-                else:
-                    ishp = (layer.get('input_shape'),)
-                    oshp = (layer.get('output_dim'),)
-                inp = Input(shape=ishp)
-                vae.add(inp)
-                layer['input_shape'] = None
-                z_mean = _lcreator(layer)(inp)
-                z_log_var = _lcreator(layer)(inp)
-                z = Lambda(sampling, output_shape=oshp)([z_mean, z_log_var])
-                vae.add(z)
-                outp = _lcreator({'layer' : layer.get('layer'), 'output_dim' : ishp[-1]})
-                vae.add(outp)
-
-                vae.compile(optimizer=Adadelta(lr=1.), loss='cosine_proximity')
-                vae.fit(learn_X, learn_X,  nb_epoch=params['nb_epoch'], batch_size=params['batch_size'], verbose=params['verbose'],
-                      validation_data=(valid_X, valid_X),
-                      shuffle=True,
-                      callbacks=[EarlyStopping(patience=params.get('early') if params.get('early') is not None else params['nb_epoch'])])
-                layer['weights'] = z.get_weights()
 
     model = Sequential()
 
@@ -497,6 +170,8 @@ def simple_net(data, layers, **params):
         early = params['early'] if params['early'] is not None else params['nb_epoch']
         callbacks.append(EarlyStopping(patience=early))
     if params.get('checkpoint'):
+        if not exists('tmp'):
+            mkdir('tmp')
         callbacks.append(ModelCheckpoint('tmp/model.hdf5',
                                          monitor='val_loss',
                                          verbose=1 if params['verbose'] > 0 else 0,
@@ -523,10 +198,12 @@ def simple_net(data, layers, **params):
         real_ret = (np.log(real[0] / prices[0][:, -1]), np.log(real[1] / prices[1][:, -1]))
         pred_ret = (np.log(pred[0] / prices[0][:, -1]), np.log(pred[1] / prices[1][:, -1]))
     elif y_tag == 'CReturn':
-        real_ret = (np.log(np.exp(real[0]) * prices[0][:, 0] / prices[0][:, -1]),
-                    np.log(np.exp(real[1]) * prices[1][:, 0] / prices[1][:, -1]))
-        pred_ret = (np.log(np.exp(pred[0]) * prices[0][:, 0] / prices[0][:, -1]),
-                    np.log(np.exp(pred[1]) * prices[1][:, 0] / prices[1][:, -1]))
+        real_ret = (real[0] - data['valid']['CReturn']['x'][:, -1], real[1] - data['test']['CReturn']['x'][:, -1])
+        pred_ret = (pred[0] - data['valid']['CReturn']['x'][:, -1], pred[1] - data['test']['CReturn']['x'][:, -1])
+        # real_ret = (np.log(np.exp(real[0]) * prices[0][:, 0] / prices[0][:, -1]),
+        #             np.log(np.exp(real[1]) * prices[1][:, 0] / prices[1][:, -1]))
+        # pred_ret = (np.log(np.exp(pred[0]) * prices[0][:, 0] / prices[0][:, -1]),
+        #             np.log(np.exp(pred[1]) * prices[1][:, 0] / prices[1][:, -1]))
     else:
         real_ret = real
         pred_ret = pred
@@ -536,7 +213,7 @@ def simple_net(data, layers, **params):
 
         if params.get('examples'):
             print '\n== Examples ', '=' * 10, '\nValidation set'
-            print np.round(np.vstack((pred[1], real[1])).transpose(), 2)[:5]
+            print np.round(np.vstack((real[1], pred[1])).transpose(), 3)[:5]
             print '\n Test set'
             print np.round(np.vstack((real_ret[1], pred_ret[1])).transpose(), 3)[:5]
         
@@ -629,6 +306,9 @@ def evaluate(model, data, **params):
     elif params.get('x_tag') == 'Price':
         obs_x = data.get(params.get('x_tag'))['x']
         obs_y = data.get('Price')['y']
+    elif params.get('x_tag') == 'Stats':
+        obs_x = data.get(params.get('x_tag'))
+        obs_y = data.get(params.get('y_tag'))['y']
     else:
         obs_x = data.get(params.get('x_tag'))['x']
         obs_y = data.get(params.get('y_tag'))['y']
@@ -648,14 +328,13 @@ def evaluate(model, data, **params):
         pred_ret = np.log(pred / data.get('Price').get('x')[:, -1])
         pred_price = pred
     elif params.get('y_tag') == 'CReturn':
-        real_ret = np.log(np.exp(real) * data.get('Price').get('x')[:, 0] / data.get('Price').get('x')[:, -1])
-        pred_ret = np.log(np.exp(pred) * data.get('Price').get('x')[:, 0] / data.get('Price').get('x')[:, -1])
-        pred_price = np.exp(pred) * data.get('Price').get('x')[:, 0]
+        real_ret = real - data['CReturn']['x'][:, -1]
+        pred_ret = pred - data['CReturn']['x'][:, -1]
     else:
         real_ret = real
         pred_ret = pred
-        pred_price = np.exp(pred) * data.get('Price').get('x')[:, -1]
 
+    pred_price = np.exp(pred) * data.get('Price').get('x')[:, -1]
     actions = np.sign(pred_ret)
 
     logstr = ''
@@ -710,7 +389,6 @@ def evaluate(model, data, **params):
     else:
         return stats.get(ret_key)
 
-
 def predict(model, obs, keepdims=False):
 
     if len(model.layers[0].input_shape) == 3 and len(obs.shape) == 2:
@@ -728,5 +406,10 @@ def predict(model, obs, keepdims=False):
     else:
         return pred.squeeze()
 
+def load(path):
+    with open(join(path, 'model.json'), 'rb') as f:
+        model = model_from_json(f.read())
+    model.load_weights(join(path, 'weights.hf5'))
+    return model
 
 

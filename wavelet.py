@@ -2,12 +2,6 @@
 
 import pandas as pd
 import numpy as np
-import pickle
-from os.path import expanduser, join
-
-import dataworker as dw
-
-data_path = expanduser('~/investparty/data/futures')
 
 coeff = {
     1: {
@@ -3970,24 +3964,11 @@ def daubechies(x, period, ftype, direct):
     if len(x.shape) != 2:
         x = x[np.newaxis, :]
 
-    #cfs = coeff[period][ftype][direct][::-1]
-
     def _dec(data):
-        return np.convolve(np.hstack((data, data)), coeff[period][ftype][direct])[period * 2 - 1:data.shape[-1] + period * 2 - 1]#period * 2 + data.shape[-1] - 1]
+        return np.convolve(np.hstack((data, data)), coeff[period][ftype][direct])[period * 2 - 1:data.shape[-1] + period * 2 - 1]
 
     def _rec(data):
         return np.convolve(np.hstack((data, data)), coeff[period][ftype][direct])[-period * 2 - data.shape[-1] + 1:-period * 2 + 1]
-
-    # if ftype ==  'low':
-    #     if direct == 'dec':
-    #         return result[1:(len(x) + 1)]
-    #     else:
-    #         return result[len(coeff[period][ftype][direct]):(len(coeff[period][ftype][direct]) + len(x) - 1)]
-    # else:
-    #     if direct == 'dec':
-    #         return result[len(coeff[period][ftype][direct]):(len(coeff[period][ftype][direct]) + len(x) - 1)]
-    #     else:
-    #         return result[1:(len(x) + 1)]
 
     if direct == 'dec':
         return np.array(map(_dec, x))
@@ -4009,7 +3990,7 @@ def filter(x, level, db):
     return np.array(res)
 
 def smooth(x, level, db):
-    if np.log2(512) % 1 != 0:
+    if np.log2(x.shape[-1]) % 1 != 0:
         raise Exception('len of x is not a multiple of 2')
     idx = None
     if isinstance(x, pd.DataFrame):
@@ -4026,31 +4007,3 @@ def smooth(x, level, db):
         res = pd.Series(res, index=idx)
 
     return res
-
-def _data(x, y, level, db, vsplit=.8, tsplit=.8, stats=True, file_name='512D_4lvl_20db.waveobs'):
-
-    learn, valid, test = dw._data_3D_order(y, vsplit=vsplit, tsplit=tsplit)
-
-    learn_x, learn_y = x[learn], y[learn]
-    valid_x, valid_y = x[valid], y[valid]
-    test_x, test_y = x[test], y[test]
-
-    l_wave = filter(learn_x, level, db)
-    v_wave = filter(valid_x, level, db)
-    t_wave = filter(test_x, level, db)
-
-    if stats:
-        d_stats = dw.data_stat(x, file_name='D.stats')
-        l_stats = d_stats[learn]
-        v_stats = d_stats[valid]
-        t_stats = d_stats[test]
-
-    if stats:
-        data = ((l_wave, v_wave, t_wave), (l_stats, v_stats, t_stats), (learn_y, valid_y, test_y))
-    else:
-        data = ((l_wave, v_wave, t_wave), (learn_y, valid_y, test_y))
-
-    if file_name is not None:
-        pickle.dump(data, open(join(data_path, file_name), 'wb'))
-
-    return data
