@@ -203,7 +203,7 @@ def prepare(paths, columns=['Date', 'Time', 'Open', 'High', 'Low', 'Close', 'Vol
             cwaves_all.append(np.cumsum(waves_all[i]['A'] * mults[i], 1))
 
     if(params.get('order')):
-        lix, vix, tix = _obs_order(xs, ys, ret_key, price_key, vslpit, tsplit, **params)
+        lix, vix, tix = _obs_order(xs, ys, ret_key, price_key, **params)
 
         data = {}
         # == learn ==
@@ -290,7 +290,7 @@ def prepare(paths, columns=['Date', 'Time', 'Open', 'High', 'Low', 'Close', 'Vol
 
     return data
 
-def _obs_order(xs, ys, ret_key, price_key, vslpit, tsplit, **params):
+def _obs_order(xs, ys, ret_key, price_key, vsplit, tsplit, **params):
     if ys[ret_key].shape[-1] == 1:
         oy = ys[ret_key].squeeze() + xs[ret_key].sum(1)
     else:
