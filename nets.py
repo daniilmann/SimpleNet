@@ -11,7 +11,6 @@ from keras.layers.noise import GaussianNoise
 from keras.regularizers import l2, activity_l2
 from keras.optimizers import RMSprop, Adam, Adamax, Adadelta
 from keras.callbacks import EarlyStopping, ModelCheckpoint
-from keras.utils.visualize_util import plot
 from keras import backend as K
 from keras.models import model_from_json
 
@@ -23,7 +22,7 @@ from shutil import copyfile
 import json
 import sys
 
-import dataworker as dw
+import configs as cfg
 
 def _lcreator(layer):
     insh = {'input_shape' : layer.get('input_shape')} if layer.get('input_shape') is not None else {}
@@ -60,6 +59,7 @@ def _lcreator(layer):
                    dropout_U                = layer.get('u_drop') if layer.get('u_drop') is not None else 0.,
                    return_sequences         = layer.get('return_seq') is True,
                    unroll                   = layer.get('unroll') is True,
+                   consume_less             = layer.get('consume_less') if layer.get('consume_less') in ['cpu', 'mem', 'gpu'] else 'cpu',
                    **insh
                     )
     elif layer['layer'] == 'highway':
@@ -272,14 +272,15 @@ def simple_net(data, layers, **params):
         plt.show()
 
     if params.get('dump_model'):
-        mpath = join(dw.data_path, 'models')
+        mpath = join(cfg.data_path, 'models')
+        if not exists(mpath):
+            mkdir(mpath)
         count = len(listdir(mpath))
         mpath = join(mpath, str(count) + '_' + str(np.round(np.sum(actions[1] * real_ret[1]), 2)))
         mkdir(mpath)
         model.save_weights(join(mpath, 'weights.hf5'))
         with open(join(mpath, 'model.json'), 'wb') as f:
             f.write(model.to_json())
-        plot(model, to_file=join(mpath, 'model.png'), show_shapes=True)
         json.dump(params, open(join(mpath, 'params.json'), 'wb'), indent=3)
         json.dump(layers, open(join(mpath, 'layers.json'), 'wb'), indent=3)
         if params.get('stats'):
