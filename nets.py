@@ -68,6 +68,7 @@ def _lcreator(layer):
                        b_regularizer            = l2(layer.get('b_reg')) if layer.get('b_reg') is not None else None,
                        init                     = layer.get('init') if layer.get('init') is not None else 'lecun_uniform',
                        transform_bias           = layer.get('trans_b') if isinstance(layer.get('trans_b'), float) else -3.,
+                       bias                     = layer.get('bias') is True,
                        **insh
                        )
     elif layer['layer'] == 'norm':
@@ -200,10 +201,6 @@ def simple_net(data, layers, **params):
     elif y_tag == 'CReturn':
         real_ret = (real[0] - data['valid']['CReturn']['x'][:, -1], real[1] - data['test']['CReturn']['x'][:, -1])
         pred_ret = (pred[0] - data['valid']['CReturn']['x'][:, -1], pred[1] - data['test']['CReturn']['x'][:, -1])
-        # real_ret = (np.log(np.exp(real[0]) * prices[0][:, 0] / prices[0][:, -1]),
-        #             np.log(np.exp(real[1]) * prices[1][:, 0] / prices[1][:, -1]))
-        # pred_ret = (np.log(np.exp(pred[0]) * prices[0][:, 0] / prices[0][:, -1]),
-        #             np.log(np.exp(pred[1]) * prices[1][:, 0] / prices[1][:, -1]))
     else:
         real_ret = real
         pred_ret = pred
@@ -216,7 +213,7 @@ def simple_net(data, layers, **params):
             print np.round(np.vstack((real[1], pred[1])).transpose(), 3)[:5]
             print '\n Test set'
             print np.round(np.vstack((real_ret[1], pred_ret[1])).transpose(), 3)[:5]
-        
+
         stats = {
             'test' : {
                 'mse': np.mean(np.square(pred_ret[1] - real_ret[1])),
@@ -285,7 +282,7 @@ def simple_net(data, layers, **params):
         plot(model, to_file=join(mpath, 'model.png'), show_shapes=True)
         json.dump(params, open(join(mpath, 'params.json'), 'wb'), indent=3)
         json.dump(layers, open(join(mpath, 'layers.json'), 'wb'), indent=3)
-        if(params.get('stats')):
+        if params.get('stats'):
             json.dump(stats, open(join(mpath, 'stats.json'), 'wb'), indent=3)
         if params.get('log'):
             copyfile('tmp/net.log', join(mpath, 'net.log'))
@@ -298,11 +295,18 @@ def evaluate(model, data, **params):
     key = data.keys()[-1] if params.get('key') is None else params.get('key')
     data = data[key]
     obs_y = None
-    if params.get('x_tag') in ['Waves', 'CWaves']:
+    if params.get('x_tag') == 'CWaves':
         if isinstance(params.get('lvl'), int):
             obs_x = data.get(params.get('x_tag'))[params.get('lvl')]
         else:
             raise Exception('Expected int lvl, received ' + str(type(params.get('lvl'))))
+    elif params.get('x_tag') == 'Waves':
+        if params.get('wpart') not in ['A', 'D']:
+            raise Exception('specify wpart')
+        elif not params.get('lvl'):
+            raise Exception('specify lvl')
+        else:
+            obs_x = data.get(params.get('x_tag'))[params.get('lvl')][params.get('wpart')]
     elif params.get('x_tag') == 'Price':
         obs_x = data.get(params.get('x_tag'))['x']
         obs_y = data.get('Price')['y']

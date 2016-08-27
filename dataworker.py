@@ -6,27 +6,88 @@ import pickle
 from functools import partial
 import multiprocessing as mp
 
-from scipy.stats import kruskal, levene, ttest_ind, kendalltau
+from scipy.stats import kruskal, levene, ttest_ind, kendalltau, pearsonr
 from sklearn.svm import SVR
 from sklearn.metrics import mean_squared_error as mse
 
 import wavelet as wv
+import operators as ops
 
-def set_data_index(data, column, form='{:06d}'):
-    '''
+def load_frame(path, ix_columns, ix_format, columns=['Date', 'Time', 'Open', 'High', 'Low', 'Close', 'Volume'], **params):
+    data = pd.read_csv(path, names=columns, header=0)
+    columns = set(columns)
+    if params.get('pre_delete'):
+        params['pre_delete'] = set(params['pre_delete'])
+        if set(params.get('pre_delete')).difference(columns):
+            raise Exception('pre_delete columns don\'t exist in DataFrame')
+        for column in params.get('pre_delete'):
+            columns.remove(column)
+            del data[column]
 
-    :param pd.DataFrame data:
-    :param str column:
-    :return:
-    '''
-    try:
-        del (data['Time'])
-    except Exception:
-        pass
-    data[column] = map(form.format, data[column])
-    data = data.set_index(pd.DatetimeIndex(pd.to_datetime(data[column], format='%d%m%y')))
-    del (data[column])
-    data = data.sort_index(ascending=True)
+    if params.get('preformat'):
+
+        if not isinstance(params.get('preformat'), dict):
+            raise Exception('preformat is not a <columns : format> dict')
+        elif set(params.get('preformat').keys()).difference(columns):
+            raise Exception('preformat columns don\'t exist in DataFrame')
+
+        for c, f in params.get('preformat').items():
+            data[c] = map(f.format, data[c])
+
+    if not hasattr(ix_columns, '__iter__') and isinstance(ix_columns, str):
+        ix_columns = [ix_columns]
+
+    if set(ix_columns).difference(columns):
+        raise Exception('There is no such ix columns in DataFrame')
+    if not isinstance(ix_format, str):
+        raise Exception('ix_format must be string pattern')
+
+    for column in ix_columns:
+        data[column] = data[column].apply(str)
+
+    data['dtix'] = map(''.join, data[ix_columns].as_matrix())
+    data = data.set_index(pd.DatetimeIndex(pd.to_datetime(data['dtix'], format=ix_format)))
+    del data['dtix']
+
+    for column in ix_columns:
+        del data[column]
+
+    if params.get('drop_wd'):
+        if not hasattr(params.get('drop_wd'), '__iter__'):
+            params['drop_wd'] = [params['drop_wd']]
+        params['drop_wd'] = set(params['drop_wd'])
+        for v in params['drop_wd']:
+            if not isinstance(isinstance(v, int), int):
+                raise Exception('drop weekdays must be 0 <= x < 6 integers')
+            elif v < 0 or v >= 6:
+                raise Exception('drop weekdays must be 0 <= x < 6 integers')
+            else:
+                data = data.drop(data.index[np.argwhere(data.index.weekday == v).squeeze()])
+
+    if params.get('logret'):
+        if not isinstance(params.get('logret'), dict):
+            raise Exception('logret is not a <column : levels> dict')
+        elif set(params.get('preformat').keys()).difference(columns):
+            raise Exception('logret columns don\'t exist in DataFrame')
+
+        for column in params.get('logret').keys():
+            if not hasattr(params.get('logret')[column], '__iter__'):
+                params['logret'][column] = [params['logret'][column]]
+
+            for v in params.get('logret')[column]:
+                if not isinstance(isinstance(v, int), int):
+                    raise Exception('drop weekdays must be 0 <= x < 6 integers')
+                else:
+                    data[column + 'LogRet' + str(v)] = np.log(data[column] / data[column].shift(v))
+
+    if params.get('post_delete'):
+        params['post_delete'] = set(params['post_delete'])
+        if set(params.get('post_delete')).difference(columns):
+            raise Exception('post_delete columns don\'t exist in DataFrame')
+        for column in params.get('post_delete'):
+            columns.remove(column)
+            del data[column]
+
     return data
 
 def order_sign(y, vsplit=.8, tsplit=.4):
@@ -157,138 +218,149 @@ def smooth_net(obs_paths, target_paths, columns=['Date', 'Time', 'Open', 'High',
 
         return (learn, valid, test)
 
-def prepare(paths, columns=['Date', 'Time', 'Open', 'High', 'Low', 'Close', 'Volume'], **params):
-
-    units = params['units']
-    punits = params['punits']
-    period = params['period']
-    if params.get('order'):
-        vsplit = params['vsplit']
-        tsplit = params['tsplit']
-
-    if not isinstance(paths, list):
-        paths = [paths]
-
-    tss = []
-    for path in paths:
-
-        data = pd.read_csv(path, names=columns, header=0)
-
-        data = set_data_index(data, 'Date')
-        data = data.drop(data.index[np.argwhere(data.index.weekday == 5).squeeze()])
-        data = data[['Close']]
-        data['Ret'] = np.log(data / data.shift())
-        tss.append(data)
-
-    price_key = 'price'
-    ret_key = 'ret'
-    xs, ys = gen_obs(tss, units, punits, period, ret_key, price_key)
-
-    if params.get('ysum'):
-        ys[ret_key] = ys[ret_key].sum(1, keepdims=True)
-
-    print 'x shape ', xs[price_key].shape, xs[ret_key].shape
-    print 'y shape ',  ys[price_key].shape, ys[ret_key].shape
-
-    if params.get('waves'):
-        assert None not in [params.get('db'), params.get('lvl')]
-        waves_all = wv.filter(xs[ret_key], params.get('lvl'), params.get('db'))
-
-        cwaves_all = []
-        if params.get('mult'):
-            mults = [1.42, 2., 2.828, 4., 5.655]
-        else:
-            mults = np.ones(5)
-        for i in range(params.get('lvl')):
-            cwaves_all.append(np.cumsum(waves_all[i]['A'] * mults[i], 1))
-
-    if(params.get('order')):
-        lix, vix, tix = _obs_order(xs, ys, ret_key, price_key, vslpit, tsplit, **params)
-
-        data = {}
-        # == learn ==
-        learn = {
-            'Price' : {'x' : xs[price_key][lix], 'y' : ys[price_key][lix]},
-            'Return' : {'x' : xs[ret_key][lix], 'y' : ys[ret_key][lix]},
-            'CReturn' : {'x' : xs[ret_key][lix].cumsum(1), 'y' : xs[ret_key][lix, :].sum(1, keepdims=True) + ys[ret_key][lix, :].cumsum(1)},
-        }
-        if params.get('waves'):
-            learn['Waves'] = []
-            learn['CWaves'] = []
-            for w in waves_all:
-                learn['Waves'].append({
-                    'A' : w['A'][lix],
-                    'D': w['D'][lix]
-                })
-            for w in cwaves_all:
-                learn['CWaves'].append(w[lix])
-
-        data['learn'] = learn
-        # ===========
-
-        # == valid ==
-        valid = {
-            'Price' : {'x' : xs[price_key][vix], 'y' : ys[price_key][vix]},
-            'Return' : {'x' : xs[ret_key][vix], 'y' : ys[ret_key][vix]},
-            'CReturn' : {'x' : xs[ret_key][vix].cumsum(1), 'y' : xs[ret_key][vix, :].sum(1, keepdims=True) + ys[ret_key][vix, :].cumsum(1)},
-        }
-        if params.get('waves'):
-            valid['Waves'] = []
-            valid['CWaves'] = []
-            for w in waves_all:
-                valid['Waves'].append({
-                    'A' : w['A'][vix],
-                    'D': w['D'][vix]
-                })
-            for w in cwaves_all:
-                valid['CWaves'].append(w[vix])
-
-        data['valid'] = valid
-        # ===========
-
-        # == test ==
-        test = {
-            'Price' : {'x' : xs[price_key][tix], 'y' : ys[price_key][tix]},
-            'Return' : {'x' : xs[ret_key][tix], 'y' : ys[ret_key][tix]},
-            'CReturn' : {'x' : xs[ret_key][tix].cumsum(1), 'y' : xs[ret_key][tix, :].sum(1, keepdims=True) + ys[ret_key][tix, :].cumsum(1)},
-        }
-        if params.get('waves'):
-            test['Waves'] = []
-            test['CWaves'] = []
-            for w in waves_all:
-                test['Waves'].append({
-                    'A' : w['A'][tix],
-                    'D': w['D'][tix]
-                })
-            for w in cwaves_all:
-                test['CWaves'].append(w[tix])
-
-        data['test'] = test
-        # ===========
-    else:
-        data = {}
-        learn = {
-            'Price' : {'x' : xs[price_key], 'y' : ys[price_key]},
-            'Return' : {'x' : xs[ret_key], 'y' : ys[ret_key]},
-            'CReturn' : {'x' : xs[ret_key].cumsum(1), 'y' : xs[ret_key].sum(1, keepdims=True) + ys[ret_key].cumsum(1)},
-        }
-        if params.get('waves'):
-            learn['Waves'] = []
-            learn['CWaves'] = []
-            for w in waves_all:
-                learn['Waves'].append({
-                    'A' : w['A'],
-                    'D': w['D']
-                })
-            for w in cwaves_all:
-                learn['CWaves'].append(w)
-
-        data['full'] = learn
-
-    if isinstance(params.get('dump_path'), basestring):
-        pickle.dump(data, open(gen_path(**params), 'wb'))
-
-    return data
+# def prepare(path, units, punits, period, columns=['Date', 'Time', 'Open', 'High', 'Low', 'Close', 'Volume']  **params):
+#
+#     # keys validation
+#     assert len(set(params.keys()).difference([
+#         'order',
+#         'vsplit',
+#         'tsplit',
+#         'operators',
+#         'dump_path'
+#     ]))
+#
+#     if params.get('order'):
+#         vsplit = params['vsplit']
+#         tsplit = params['tsplit']
+#
+#     frame = load_frame(path, columns)
+#     ckeys = frame.columns
+#     xs, ys = gen_obs(frame, units, punits, period)
+#
+#     if params.get('ysum'):
+#         ys[ret_key] = ys[ret_key].sum(1, keepdims=True)
+#
+#     print 'x shape ', xs[price_key].shape, xs[ret_key].shape
+#     print 'y shape ',  ys[price_key].shape, ys[ret_key].shape
+#
+#     if params.get('operators'):
+#         if not isinstance(params.get('operators'), dict):
+#             raise Exception('Operators must be <"name" : "alias"|function> like dict')
+#
+#         ids = {}
+#         for cop_key, cop_value in params.get('operators'):
+#             try:
+#                 if isinstance(cop_value, str):
+#                     op_call = getattr(ops, cop_value)
+#                 elif hasattr(cop_value, '__call__'):
+#                     op_call = cop_value
+#
+#                 ids[cop_key] = op_call(xs)
+#
+#             except Exception, e:
+#                 print e.message
+#
+#
+#
+#     if params.get('waves'):
+#         assert None not in [params.get('db'), params.get('lvl')]
+#         waves_all = wv.filter(xs[ret_key], params.get('lvl'), params.get('db'))
+#
+#         cwaves_all = []
+#         if params.get('mult'):
+#             mults = [1.42, 2., 2.828, 4., 5.655]
+#         else:
+#             mults = np.ones(5)
+#         for i in range(params.get('lvl')):
+#             cwaves_all.append(np.cumsum(waves_all[i]['A'] * mults[i], 1))
+#
+#     if(params.get('order')):
+#         lix, vix, tix = _obs_order(xs, ys, ret_key, price_key, vslpit, tsplit, **params)
+#
+#         data = {}
+#         # == learn ==
+#         learn = {
+#             'Price' : {'x' : xs[price_key][lix], 'y' : ys[price_key][lix]},
+#             'Return' : {'x' : xs[ret_key][lix], 'y' : ys[ret_key][lix]},
+#             'CReturn' : {'x' : xs[ret_key][lix].cumsum(1), 'y' : xs[ret_key][lix, :].sum(1, keepdims=True) + ys[ret_key][lix, :].cumsum(1)},
+#         }
+#         if params.get('waves'):
+#             learn['Waves'] = []
+#             learn['CWaves'] = []
+#             for w in waves_all:
+#                 learn['Waves'].append({
+#                     'A' : w['A'][lix],
+#                     'D': w['D'][lix]
+#                 })
+#             for w in cwaves_all:
+#                 learn['CWaves'].append(w[lix])
+#
+#         data['learn'] = learn
+#         # ===========
+#
+#         # == valid ==
+#         valid = {
+#             'Price' : {'x' : xs[price_key][vix], 'y' : ys[price_key][vix]},
+#             'Return' : {'x' : xs[ret_key][vix], 'y' : ys[ret_key][vix]},
+#             'CReturn' : {'x' : xs[ret_key][vix].cumsum(1), 'y' : xs[ret_key][vix, :].sum(1, keepdims=True) + ys[ret_key][vix, :].cumsum(1)},
+#         }
+#         if params.get('waves'):
+#             valid['Waves'] = []
+#             valid['CWaves'] = []
+#             for w in waves_all:
+#                 valid['Waves'].append({
+#                     'A' : w['A'][vix],
+#                     'D': w['D'][vix]
+#                 })
+#             for w in cwaves_all:
+#                 valid['CWaves'].append(w[vix])
+#
+#         data['valid'] = valid
+#         # ===========
+#
+#         # == test ==
+#         test = {
+#             'Price' : {'x' : xs[price_key][tix], 'y' : ys[price_key][tix]},
+#             'Return' : {'x' : xs[ret_key][tix], 'y' : ys[ret_key][tix]},
+#             'CReturn' : {'x' : xs[ret_key][tix].cumsum(1), 'y' : xs[ret_key][tix, :].sum(1, keepdims=True) + ys[ret_key][tix, :].cumsum(1)},
+#         }
+#         if params.get('waves'):
+#             test['Waves'] = []
+#             test['CWaves'] = []
+#             for w in waves_all:
+#                 test['Waves'].append({
+#                     'A' : w['A'][tix],
+#                     'D': w['D'][tix]
+#                 })
+#             for w in cwaves_all:
+#                 test['CWaves'].append(w[tix])
+#
+#         data['test'] = test
+#         # ===========
+#     else:
+#         data = {}
+#         learn = {
+#             'Price' : {'x' : xs[price_key], 'y' : ys[price_key]},
+#             'Return' : {'x' : xs[ret_key], 'y' : ys[ret_key]},
+#             'CReturn' : {'x' : xs[ret_key].cumsum(1), 'y' : xs[ret_key].sum(1, keepdims=True) + ys[ret_key].cumsum(1)},
+#         }
+#         if params.get('waves'):
+#             learn['Waves'] = []
+#             learn['CWaves'] = []
+#             for w in waves_all:
+#                 learn['Waves'].append({
+#                     'A' : w['A'],
+#                     'D': w['D']
+#                 })
+#             for w in cwaves_all:
+#                 learn['CWaves'].append(w)
+#
+#         data['full'] = learn
+#
+#     if isinstance(params.get('dump_path'), basestring):
+#         pickle.dump(data, open(gen_path(**params), 'wb'))
+#
+#     return data
 
 def _obs_order(xs, ys, ret_key, price_key, vslpit, tsplit, **params):
     if ys[ret_key].shape[-1] == 1:
@@ -339,154 +411,181 @@ def _obs_order(xs, ys, ret_key, price_key, vslpit, tsplit, **params):
 
     return lix, vix, tix
 
-def gen_obs(tss, units, punits, period, ret_key, price_key):
+def gen_obs(frame, units, punits, period, **params):
 
-    def grouped(x, n):
-        return np.vstack(filter(lambda obs: len(obs) == n * 6, map(lambda i: np.hstack(map(lambda s: s[1].tolist(), x[i:i+n])), range(0, len(x) - n, 1))))
+    assert period in ['DW', 'W', 'D', 'ED']
+    if period in ['DW', 'W', 'D'] and not params.get('resample'):
+        raise Exception('resample must be specified for [DW, W, D]')
+    if period == 'D' and not params.get('day_number') and 0 <= int(params.get('day_number')) <= 6:
+        raise Exception('For D period day_number must be in [0, 1, 2, 3, 4, 5, 6]')
+    if not params.get('order_nan'):
+        params['order_nan'] = dict()
+    else:
+        if not isinstance(params['order_nan'], dict):
+            raise Exception('order_nan must be a dict')
+        elif set(params['order_nan'].keys()).difference(frame.columns):
+            raise Exception('Unknown columns in order_nan')
 
-    mtss = []
-    for ts in tss:
-        if period != 'ED':
-            ix = pd.date_range(ts.index.min(), ts.index.max())
-            ix = ix[ix.weekday != 5]
-            ts = ts.reindex(ix, fill_value=np.nan)
-            datas = {price_key: np.array(list(ts.resample('W-FRI').Close)),
-                     ret_key: np.array(list(ts.resample('W-FRI').Ret))}
-            if datas.get(price_key)[-1][1].shape != 6:
-                datas[price_key] = datas[price_key][1:datas[price_key].shape[0] - 1]
-                datas[ret_key] = datas[ret_key][1:datas[ret_key].shape[0] - 1]
+    def grouped(x, w, n):
+        return np.vstack(filter(lambda obs: len(obs) == n * w, map(lambda i: np.hstack(map(lambda s: s[1].tolist(), x[i:i+n])), range(0, len(x) - n, 1))))
+
+    def _set_nan_obs(ys, key, w):
+        if period == 'W':
+            ys[key] = np.hstack(map(lambda x: np.sum(x, axis=1)[:, np.newaxis], np.hsplit(xs[key][:, units * w:], np.arange(1, punits, 1) * w if punits > 1 else 1)))
+            xs[key] = np.hstack(map(lambda x: np.sum(x, axis=1)[:, np.newaxis], np.hsplit(xs[key][:, :units * w], np.arange(1, units, 1) * w if units > 1 else 1)))
+        elif period == 'DW':
+            ys[key] = np.hstack(map(lambda x: np.sum(x, axis=1)[:, np.newaxis], np.hsplit(xs[key][:, units:], np.arange(1, punits, 1) * w if punits > 1 else 1)))
+            xs[key] = xs[key][:, :units]
+        elif period == 'D':
+            dn = int(params['day_number']) - 1
+            ys[key] = np.hstack(map(lambda x: x[:, dn], np.hsplit(xs[key][:, units:], np.arange(1, punits, 1) * w if punits > 1 else 1)))
+            xs[key] = xs[key][:, :units]
+        elif period == 'ED':
+            ys[key] = xs[key][:, units:]
+            xs[key] = xs[key][:, :units]
+
+    def _set_prev_obs(ys, key, w):
+        if period == 'W':
+            xs[key] = xs[key][:, range(w-1, (units + punits) * w, w)]
+            ys[key] = xs[key][:, units:]
+            xs[key] = xs[key][:, :units]
+        elif period == 'DW':
+            ys[key] = xs[key][:, units:][:, range(w-1, punits * w, w)]
+            xs[key] = xs[key][:, :units]
+        elif period == 'D':
+            dn = int(params['day_number'])
+            ys[key] = xs[key][:, units:][:, range(dn, punits * w, w)]
+            xs[key] = xs[key][:, :units]
+        elif period == 'ED':
+            ys[key] = xs[key][:, units:]
+            xs[key] = xs[key][:, :units]
+
+    def _fix_nan(n, w):
+        ys = {}
+        for key in xs.keys():
+            if key in params.get('order_nan').keys():
+                if params.get('order_nan')[key] == 'nan':
+                    xs[key] = np.nan_to_num(xs[key])
+
+                    _set_nan_obs(ys, key, w)
+                elif params.get('order_nan')[key] == 'previous':
+                    i = 1
+                    while np.isnan(xs[key][:, 0]).any():
+                        xs[key][np.isnan(xs[key][:, 0]), 0] = xs[key][np.isnan(xs[key][:, 0]), i]
+                        i += 1
+                        if i == xs[key].shape[-1]:
+                            break
+
+                    for c in range(1, xs[key].shape[-1], 1):
+                        xs[key][np.isnan(xs[key][:, c]), c] = xs[key][np.isnan(xs[key][:, c]), c - 1]
+
+                    _set_prev_obs(ys, key, w)
+            elif (xs[key] <= 0).any():
+                xs[key] = np.nan_to_num(xs[key])
+
+                _set_nan_obs(ys, key, w)
             else:
-                datas[price_key] = datas[price_key][1:]
-                datas[ret_key] = datas[ret_key][1:]
-            assert datas[price_key].shape == datas[ret_key].shape
-            mtss.append(datas)
-        else:
-            mtss.append({
-                price_key: ts.Close.tolist()[1:],
-                ret_key: ts.Ret.tolist()[1:]
-            })
-    xs, ys = {price_key: [], ret_key: []}, {price_key: [], ret_key: []}
-    if period == 'DW':
-        n = int(np.ceil(units / 6.) + punits)
-        for ts in mtss:
-            for k in xs.keys():
-                xs[k].append(grouped(ts.get(k), n))
-        for k in xs.keys():
-            xs[k] = np.vstack(xs[k])[:, np.ceil(units / 6.) * 6 - units:]
-            xs[k] = xs[k][range(0, xs[k].shape[0], punits)]
-        ix = np.intersect1d(range(xs[price_key].shape[0]),
-                            np.argwhere(np.sum(np.isnan(xs[ret_key][:, :units]), axis=1) <= units / 3))
-        ix = np.intersect1d(np.argwhere(np.sum(np.isnan(xs[ret_key][:, units:]), axis=1) <= punits), ix)
-        for k in xs.keys():
-            xs[k] = xs[k][ix].squeeze()
-        # return
-        xs[ret_key] = np.nan_to_num(xs[ret_key])
-        ys[ret_key] = np.hstack(map(lambda x: np.sum(x, axis=1)[:, np.newaxis], np.hsplit(xs[ret_key][:, units:],
-                                                                                          np.arange(1, punits,
-                                                                                                    1) * 6 if punits > 1 else 1)))
-        xs[ret_key] = xs[ret_key][:, :units]
-        # prices
-        i = 1
-        while np.isnan(xs[price_key][:, 0]).any():
-            xs[price_key][np.isnan(xs[price_key][:, 0]), 0] = xs[price_key][np.isnan(xs[price_key][:, 0]), i]
-            i += 1
-            if i == xs[price_key].shape[-1]:
-                break
+                i = 1
+                while np.isnan(xs[key][:, 0]).any():
+                    xs[key][np.isnan(xs[key][:, 0]), 0] = xs[key][np.isnan(xs[key][:, 0]), i]
+                    i += 1
+                    if i == xs[key].shape[-1]:
+                        break
 
-        for c in range(1, xs[price_key].shape[-1], 1):
-            xs[price_key][np.isnan(xs[price_key][:, c]), c] = xs[price_key][np.isnan(xs[price_key][:, c]), c - 1]
+                for c in range(1, xs[key].shape[-1], 1):
+                    xs[key][np.isnan(xs[key][:, c]), c] = xs[key][np.isnan(xs[key][:, c]), c - 1]
 
-        ys[price_key] = xs[price_key][:, range(units + 5, xs[price_key].shape[-1], 6)]
-        xs[price_key] = xs[price_key][:, :units]
+                _set_prev_obs(ys, key, w)
 
-    elif period == 'W':
-        n = int(units + punits)
-        for ts in mtss:
-            for k in xs.keys():
-                xs[k].append(grouped(ts.get(k), n))
-        for k in xs.keys():
-            xs[k] = np.vstack(xs[k])
-            xs[k] = xs[k][range(0, xs[k].shape[0], punits)]
-        ix = np.intersect1d(range(xs[price_key].shape[0]),
-                            np.argwhere(np.sum(np.isnan(xs[ret_key][:, :units * 6]), axis=1) <= units * 2))
-        ix = np.intersect1d(np.argwhere(np.sum(np.isnan(xs[ret_key][:, units * 6:]), axis=1) <= punits), ix)
-        for k in xs.keys():
-            xs[k] = xs[k][ix].squeeze()
+        return xs, ys
 
-        # return
-        xs[ret_key] = np.nan_to_num(xs[ret_key])
-        ys[ret_key] = np.hstack(map(lambda x: np.sum(x, axis=1)[:, np.newaxis], np.hsplit(xs[ret_key][:, units * 6:],
-                                                                                          np.arange(1, punits,
-                                                                                                    1) * 6 if punits > 1 else 1)))
-        xs[ret_key] = np.hstack(map(lambda x: np.sum(x, axis=1)[:, np.newaxis], np.hsplit(xs[ret_key][:, :units * 6],
-                                                                                          np.arange(1, punits,
-                                                                                                    1) * 6 if punits > 1 else 1)))
-
-        # prices
-        i = 1
-        while np.isnan(xs[price_key][:, 0]).any():
-            xs[price_key][np.isnan(xs[price_key][:, 0]), 0] = xs[price_key][np.isnan(xs[price_key][:, 0]), i]
-            i += 1
-            if i == xs[price_key].shape[-1]:
-                break
-
-        for c in range(1, xs[price_key].shape[-1], 1):
-            xs[price_key][np.isnan(xs[price_key][:, c]), c] = xs[price_key][np.isnan(xs[price_key][:, c]), c - 1]
-
-        xs[price_key] = xs[price_key][:, range(5, n * 6, 6)]
-        ys[price_key] = xs[price_key][:, units:]
-        xs[price_key] = xs[price_key][:, :units]
-
-    elif period == 'D':
-        n = int(np.ceil((units) / 6.) + np.ceil((punits) / 6.))
-        for ts in mtss:
-            for k in xs.keys():
-                xs[k].append(grouped(ts.get(k), n))
-        for k in xs.keys():
-            xs[k] = np.vstack(xs[k])[:, np.ceil(units / 6.) * 6 - units:np.ceil((units) / 6.) * 6 + punits]
-            xs[k] = xs[k][range(0, xs[k].shape[0], int(np.ceil(punits / 6.)))]
-        ix = np.intersect1d(range(xs[price_key].shape[0]),
-                            np.argwhere(np.sum(np.isnan(xs[ret_key][:, :units]), axis=1) <= units / 3))
-        ix = np.intersect1d(np.argwhere(np.sum(np.isnan(xs[ret_key][:, units:]), axis=1) <= punits), ix)
-        for k in xs.keys():
-            xs[k] = xs[k][ix].squeeze()
-
-        # return
-        xs[ret_key] = np.nan_to_num(xs[ret_key])
-        ys[ret_key] = np.hstack(map(lambda x: np.sum(x, axis=1)[:, np.newaxis], np.hsplit(xs[ret_key][:, units:],
-                                                                                          np.arange(1, punits,
-                                                                                                    1) * 6 if punits > 1 else 1)))
-        xs[ret_key] = xs[ret_key][:, :units]
-
-        # prices
-        i = 1
-        while np.isnan(xs[price_key][:, 0]).any():
-            xs[price_key][np.isnan(xs[price_key][:, 0]), 0] = xs[price_key][np.isnan(xs[price_key][:, 0]), i]
-            i += 1
-            if i == xs[price_key].shape[-1]:
-                break
-
-        for c in range(1, xs[price_key].shape[-1], 1):
-            xs[price_key][np.isnan(xs[price_key][:, c]), c] = xs[price_key][np.isnan(xs[price_key][:, c]), c - 1]
-
-        ys[price_key] = xs[price_key][:, units:]
-        xs[price_key] = xs[price_key][:, :units]
-    elif period == 'ED':
+    xs, ys = {}, {}
+    if period == 'ED':
         n = units + punits
-        for ts in mtss:
-            for k in xs.keys():
-                x = ts.get(k)
-                xs[k].append([x[i:i + n] for i in range(0, len(x) - n + 1, 1)])
-        for k in xs.keys():
-            xs[k] = np.vstack(xs[k])
+        for column in frame.columns:
+            x = frame[column].tolist()
+            xs[column] = np.vstack([x[i:i + n] for i in range(0, len(x) - n + 1, 1)])
 
-        # return
-        ys[ret_key] = xs[ret_key][:, -punits:]
-        xs[ret_key] = xs[ret_key][:, :units]
+        ix = np.arange(xs[xs.keys()[-1]].shape[0])
+        for key in xs.keys():
+            ix = np.intersect1d(ix, np.argwhere(np.sum(np.isnan(xs[key][:, :units]), axis=1) <= units / 3))
 
-        # prices
-        ys[price_key] = xs[price_key][:, units:]
-        xs[price_key] = xs[price_key][:, :units]
+        for key in xs.keys():
+            xs[key] = xs[key][ix]
+
+        xs, ys = _fix_nan(n, None)
+    elif params.get('resample'):
+        data = {}
+        rsmpl = 'W-' + params.get('resample')
+        ix = pd.date_range(frame.index.min(), frame.index.max())
+        frame = frame.reindex(ix, fill_value=np.nan)
+        weekends = params.get('weekends') if params.get('weekends') else [5,6]
+        for w in weekends:
+            frame = frame.ix[frame.index.weekday != w]
+        c = np.argwhere(frame.index.weekday == {
+            'MON' : 1,
+            'TUE' : 2,
+            'WED' : 3,
+            'THU' : 4,
+            'FRI' : 5,
+            'SAT' : 6,
+            'SUN' : 0
+        }[params.get('resample')])[0][0]
+        frame = frame.ix[c:]
+        c = np.argwhere(frame.index.weekday == 4)[-1][0]
+        frame = frame.ix[:c+1]
+        w = np.unique(frame.index.weekday).shape[0]
+        resampler = frame.resample(rsmpl)
+        for column in frame.columns:
+            data[column] = np.array(list(resampler[column]))
+
+        if period == 'DW':
+            n = int(np.ceil(units / 6.) + punits)
+            for column in frame.columns:
+                xs[column] = np.vstack(grouped(data[column], w, n))[:, np.ceil(units / float(w)) * w - units:]
+                xs[column] = xs[column][range(0, xs[column].shape[0], punits)]
+
+            ix = np.arange(xs[xs.keys()[-1]].shape[0])
+            for key in  xs.keys():
+                ix = np.intersect1d(ix, np.argwhere(np.sum(np.isnan(xs[key][:, :units]), axis=1) <= units / 3))
+
+            for key in xs.keys():
+                xs[key] = xs[key][ix]
+
+            xs, ys = _fix_nan(n, w)
+
+        elif period == 'W':
+            n = int(units + punits)
+            for column in frame.columns:
+                xs[column] = np.vstack(grouped(data[column], w, n))
+                xs[column] = xs[column][range(0, xs[column].shape[0], punits)]
+
+            ix = np.arange(xs[xs.keys()[-1]].shape[0])
+            for key in xs.keys():
+                ix = np.intersect1d(ix, np.argwhere(np.sum(np.isnan(xs[key][:, :units]), axis=1) <= units))
+
+            for key in xs.keys():
+                xs[key] = xs[key][ix]
+
+            xs, ys = _fix_nan(n, w)
+
+        elif period == 'D':
+            n = int(np.ceil((units) / 6.) + np.ceil((punits) / 6.))
+            for column in frame.columns:
+                xs[column] = np.vstack(grouped(data[column], w, n))[:, np.ceil(units / float(w)) * w - units:]
+                xs[column] = xs[column][range(0, xs[column].shape[0], punits)]
+
+            ix = np.arange(xs[xs.keys()[-1]].shape[0])
+            for key in xs.keys():
+                ix = np.intersect1d(ix, np.argwhere(np.sum(np.isnan(xs[key][:, :units]), axis=1) <= units / 3))
+
+            for key in xs.keys():
+                xs[key] = xs[key][ix]
+
+            xs, ys = _fix_nan(n, w)
+
+    else:
+        raise Exception('Specify ED or S period or resample for other periods')
 
     return xs, ys
 
@@ -506,3 +605,25 @@ def gen_path(**params):
         dpath += '_' + so
 
     return dpath + '.data'
+
+def order_similarity(x_obs, x_target, processes=2):
+
+    metrics = []
+    if len(x_target.shape) == 1:
+        x_target = x_target[:, np.newaxis]
+
+    def corr(obs, target):
+        ppearsonr = partial(pearsonr, y=target)
+        pool = mp.Pool(processes)
+        mapres = pool.map_async(ppearsonr, obs)
+        while not mapres.ready():
+            mapres.wait(1.)
+        res = mapres.get()
+        pool.close()
+        pool.join()
+        return [v[0] for v in res]
+
+    for target in x_target[:10]:
+        metrics.append(corr(x_obs, target))
+
+    print np.vstack(metrics)

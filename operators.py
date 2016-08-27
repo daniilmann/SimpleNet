@@ -2,7 +2,6 @@
 
 import numpy as np
 from scipy.stats import skew, kurtosis
-from scipy.signal import argrelextrema
 
 def running_mean(x, N):
     cumsum = np.cumsum(np.insert(x, 0, 0))
