@@ -24,59 +24,54 @@ import sys
 
 import configs as cfg
 
-
 def _lcreator(layer):
-    insh = {'input_shape': layer.get('input_shape')} if layer.get('input_shape') is not None else {}
+    insh = {'input_shape' : layer.get('input_shape')} if layer.get('input_shape') is not None else {}
 
     if layer['layer'] == 'dense':
-        return Dense(output_dim=int(np.round(layer['output_dim'])),
-                     W_regularizer=l2(layer.get('w_reg')) if layer.get('w_reg') is not None else None,
-                     activity_regularizer=activity_l2(layer.get('a_reg')) if layer.get('a_reg') is not None else None,
-                     b_regularizer=l2(layer.get('b_reg')) if layer.get('b_reg') is not None else None,
-                     init=layer.get('init') if layer.get('init') is not None else 'lecun_uniform',
-                     bias=layer.get('bias') is True,
+        return Dense(output_dim             = int(np.round(layer['output_dim'])),
+                     W_regularizer          = l2(layer.get('w_reg')) if layer.get('w_reg') is not None else None,
+                     activity_regularizer   = activity_l2(layer.get('a_reg')) if layer.get('a_reg') is not None else None,
+                     b_regularizer          = l2(layer.get('b_reg')) if layer.get('b_reg') is not None else None,
+                     init                   = layer.get('init') if layer.get('init') is not None else 'lecun_uniform',
+                     bias                   = layer.get('bias') is True,
                      **insh
                      )
     elif layer['layer'] == 'maxout':
-        return MaxoutDense(output_dim=int(np.round(layer['output_dim'])),
-                           nb_feature=int(np.round(layer.get('nb_feature'))) if isinstance(layer.get('nb_feature'),
-                                                                                           int) else 4,
-                           W_regularizer=l2(layer.get('w_reg')) if layer.get('w_reg') is not None else None,
-                           activity_regularizer=activity_l2(layer.get('a_reg')) if layer.get(
-                               'b_reg') is not None else None,
-                           b_regularizer=l2(layer.get('b_reg')) if layer.get('b_reg') is not None else None,
-                           init=layer.get('init') if layer.get('init') is not None else 'lecun_uniform',
-                           bias=layer.get('bias') is True,
+        return MaxoutDense(output_dim           = int(np.round(layer['output_dim'])),
+                           nb_feature           = int(np.round(layer.get('nb_feature'))) if isinstance(layer.get('nb_feature'), int) else 4,
+                           W_regularizer        = l2(layer.get('w_reg')) if layer.get('w_reg') is not None else None,
+                           activity_regularizer = activity_l2(layer.get('a_reg')) if layer.get('b_reg') is not None else None,
+                           b_regularizer        = l2(layer.get('b_reg')) if layer.get('b_reg') is not None else None,
+                           init                 = layer.get('init') if layer.get('init') is not None else 'lecun_uniform',
+                           bias                 = layer.get('bias') is True,
                            **insh
                            )
     elif layer['layer'] == 'gru':
-        return GRU(output_dim=int(np.round(layer['output_dim'])),
-                   activation=layer.get('activation') if layer.get('activation') is not None else 'tanh',
-                   inner_activation=layer.get('inn_activation') if layer.get(
-                       'inn_activation') is not None else 'hard_sigmoid',
-                   W_regularizer=l2(layer.get('w_reg')) if layer.get('w_reg') is not None else None,
-                   U_regularizer=l2(layer.get('u_reg')) if layer.get('u_reg') is not None else None,
-                   b_regularizer=l2(layer.get('b_reg')) if layer.get('b_reg') is not None else None,
-                   init=layer.get('init') if layer.get('init') is not None else 'lecun_uniform',
-                   inner_init=layer.get('inner_init') if layer.get('inner_init') is not None else 'orthogonal',
-                   dropout_W=layer.get('w_drop') if layer.get('w_drop') is not None else 0.,
-                   dropout_U=layer.get('u_drop') if layer.get('u_drop') is not None else 0.,
-                   return_sequences=layer.get('return_seq') is True,
-                   unroll=layer.get('unroll') is True,
-                   consume_less=layer.get('consume_less') if layer.get('consume_less') in ['cpu', 'mem',
-                                                                                           'gpu'] else 'cpu',
+        return GRU(output_dim               = int(np.round(layer['output_dim'])),
+                   activation               = layer.get('activation') if layer.get('activation') is not None else 'tanh',
+                   inner_activation         = layer.get('inn_activation') if layer.get('inn_activation') is not None else 'hard_sigmoid',
+                   W_regularizer            = l2(layer.get('w_reg')) if layer.get('w_reg') is not None else None,
+                   U_regularizer            = l2(layer.get('u_reg')) if layer.get('u_reg') is not None else None,
+                   b_regularizer            = l2(layer.get('b_reg')) if layer.get('b_reg') is not None else None,
+                   init                     = layer.get('init') if layer.get('init') is not None else 'lecun_uniform',
+                   inner_init               = layer.get('inner_init') if layer.get('inner_init') is not None else 'orthogonal',
+                   dropout_W                = layer.get('w_drop') if layer.get('w_drop') is not None else 0.,
+                   dropout_U                = layer.get('u_drop') if layer.get('u_drop') is not None else 0.,
+                   return_sequences         = layer.get('return_seq') is True,
+                   unroll                   = layer.get('unroll') is True,
+                   consume_less             = layer.get('consume_less') if layer.get('consume_less') in ['cpu', 'mem', 'gpu'] else 'cpu',
                    **insh
-                   )
+                    )
     elif layer['layer'] == 'highway':
-        return Highway(W_regularizer=l2(layer.get('w_reg')) if layer.get('w_reg') is not None else None,
-                       activity_regularizer=activity_l2(layer.get('a_reg')) if layer.get('a_reg') is not None else None,
-                       b_regularizer=l2(layer.get('b_reg')) if layer.get('b_reg') is not None else None,
-                       init=layer.get('init') if layer.get('init') is not None else 'lecun_uniform',
-                       transform_bias=layer.get('trans_b') if isinstance(layer.get('trans_b'), float) else -3.,
+        return Highway(W_regularizer            = l2(layer.get('w_reg')) if layer.get('w_reg') is not None else None,
+                       activity_regularizer     = activity_l2(layer.get('a_reg')) if layer.get('a_reg') is not None else None,
+                       b_regularizer            = l2(layer.get('b_reg')) if layer.get('b_reg') is not None else None,
+                       init                     = layer.get('init') if layer.get('init') is not None else 'lecun_uniform',
+                       transform_bias           = layer.get('trans_b') if isinstance(layer.get('trans_b'), float) else -3.,
                        **insh
                        )
     elif layer['layer'] == 'norm':
-        return BatchNormalization(mode=layer.get('mode') if layer.get('mode') in [0, 1, 2] else 2,
+        return BatchNormalization(mode = layer.get('mode') if layer.get('mode') in [0, 1, 2] else 2,
                                   **insh
                                   )
     elif layer['layer'] == 'noise':
@@ -90,12 +85,13 @@ def _lcreator(layer):
     elif layer['layer'] == 'activation':
         return Activation(layer['activation'])
 
-
 def simple_net(data, layers, **params):
+
     if params.get('log'):
         stdout = sys.stdout
         stdout.flush()
         sys.stdout = open('tmp/net.log', 'w')
+
 
     x_tag = params['x_tag']
     x = None
@@ -137,7 +133,7 @@ def simple_net(data, layers, **params):
         valid_X = valid_X[:, -params.get('xlen'):]
         test_X = test_X[:, -params.get('xlen'):]
 
-    if layers[0].get('layer') == 'gru':  # np.array([l.get('layer') == 'gru' for l in layers]).any():
+    if layers[0].get('layer') == 'gru': #np.array([l.get('layer') == 'gru' for l in layers]).any():
         if len(learn_X.shape) != 3:
             learn_X = learn_X[:, np.newaxis, :]
         if len(valid_X.shape) != 3:
@@ -190,8 +186,7 @@ def simple_net(data, layers, **params):
     if params.get('checkpoint'):
         model.load_weights('tmp/model.hdf5')
 
-    pred = (model.predict(valid_X, batch_size=params['batch_size']).squeeze(),
-            model.predict(test_X, batch_size=params['batch_size']).squeeze())
+    pred = (model.predict(valid_X, batch_size=params['batch_size']).squeeze(), model.predict(test_X, batch_size=params['batch_size']).squeeze())
     real = (data['valid'][y_tag]['y'].squeeze(), data['test'][y_tag]['y'].squeeze())
 
     if len(learn_X.shape) == 3:
@@ -214,16 +209,16 @@ def simple_net(data, layers, **params):
         pred_ret = pred
 
     if params.get('stats'):
-        actions = (np.sign(pred_ret[0]), np.sign(pred_ret[1]))
+        actions     = (np.sign(pred_ret[0]), np.sign(pred_ret[1]))
 
         if params.get('examples'):
             print '\n== Examples ', '=' * 10, '\nValidation set'
             print np.round(np.vstack((real[1], pred[1])).transpose(), 3)[:5]
             print '\n Test set'
             print np.round(np.vstack((real_ret[1], pred_ret[1])).transpose(), 3)[:5]
-
+        
         stats = {
-            'test': {
+            'test' : {
                 'mse': np.mean(np.square(pred_ret[1] - real_ret[1])),
                 'rmse': np.sqrt(np.mean(np.square(pred_ret[1] - real_ret[1]))),
                 'mae': np.mean(np.absolute(pred_ret[1] - real_ret[1])),
@@ -261,12 +256,8 @@ def simple_net(data, layers, **params):
         print 'acc   %3.3f  ||  %3.3f' % (stats.get('valid').get('acc'), stats.get('test').get('acc'))
         print '\n== Return ', '=' * 10
         print '      Valid     ||  Test'
-        print 'targ  %3.3f (%3.3f)  ||  %3.3f (%3.3f)' % (
-        stats.get('valid').get('target'), stats.get('valid').get('optgt'), stats.get('test').get('target'),
-        stats.get('test').get('optgt'))
-        print 'ret   %3.3f (%3.3f)  ||  %3.3f (%3.3f)' % (
-        stats.get('valid').get('return'), stats.get('valid').get('opret'), stats.get('test').get('return'),
-        stats.get('test').get('opret'))
+        print 'targ  %3.3f (%3.3f)  ||  %3.3f (%3.3f)' % (stats.get('valid').get('target'), stats.get('valid').get('optgt'), stats.get('test').get('target'), stats.get('test').get('optgt'))
+        print 'ret   %3.3f (%3.3f)  ||  %3.3f (%3.3f)' % (stats.get('valid').get('return'), stats.get('valid').get('opret'), stats.get('test').get('return'), stats.get('test').get('opret'))
         print '\n== Classification ', '=' * 10, '\nValidation set:'
         print confusion_matrix(np.sign(real_ret[0]), actions[0])
         print classification_report(np.sign(real_ret[0]), actions[0])
@@ -279,10 +270,8 @@ def simple_net(data, layers, **params):
         sys.stdout = stdout
 
     if params.get('plot'):
-        plt.plot(real[0], pred[0], 'bh', label='Validation')
-        plt.plot(real[1], pred[1], 'ro', label='Test')
-        plt.xlabel('Real')
-        plt.ylabel('Predict')
+        plt.plot(pred[0], real[0], 'bh')
+        plt.plot(pred[1], real[1], 'ro')
         plt.show()
 
     if params.get('dump_model'):
@@ -297,15 +286,16 @@ def simple_net(data, layers, **params):
             f.write(model.to_json())
         json.dump(params, open(join(mpath, 'params.json'), 'wb'), indent=3)
         json.dump(layers, open(join(mpath, 'layers.json'), 'wb'), indent=3)
-        if (params.get('stats')):
+        if(params.get('stats')):
             json.dump(stats, open(join(mpath, 'stats.json'), 'wb'), indent=3)
         if params.get('log'):
             copyfile('tmp/net.log', join(mpath, 'net.log'))
 
+
     return model
 
-
 def evaluate(model, data, **params):
+
     key = data.keys()[-1] if params.get('key') is None else params.get('key')
     data = data[key]
     obs_y = None
@@ -326,13 +316,6 @@ def evaluate(model, data, **params):
 
     if obs_y == None:
         obs_y = data.get(params.get('y_tag'))['y']
-
-    if 'wpart' in params.keys() and type(obs_x) is dict:
-        obs_x = obs_x[params.get('wpart')]
-    else:
-        # while type(obs_x) is dict:
-        #    obs_x = obs_x[obs_x.keys()[-1]]
-        raise Exception('wpart was not passed as a parameter')
 
     pred = predict(model, obs_x)
 
@@ -401,20 +384,21 @@ def evaluate(model, data, **params):
         plt.show()
 
     ret_key = params.get('return') if params.get('return') is not None else 'rmse'
-
+    
     if params.get('log'):
         return (logstr, stats.get(ret_key))
     else:
         return stats.get(ret_key)
 
-
 def predict(model, obs, keepdims=False):
+
     if len(model.layers[0].input_shape) == 3 and len(obs.shape) == 2:
         obs = obs[:, np.newaxis, :]
         if model.layers[0].input_shape[-1] < obs.shape[-1]:
             obs = obs[:, :, -model.layers[0].input_shape[-1]:]
     elif model.layers[0].input_shape[-1] < obs.shape[-1]:
-        obs = obs[:, -model.layers[0].input_shape[-1]:]
+            obs = obs[:, -model.layers[0].input_shape[-1]:]
+
 
     pred = model.predict(obs)
 
@@ -423,9 +407,10 @@ def predict(model, obs, keepdims=False):
     else:
         return pred.squeeze()
 
-
 def load(path):
     with open(join(path, 'model.json'), 'rb') as f:
         model = model_from_json(f.read())
     model.load_weights(join(path, 'weights.hf5'))
     return model
+
+
