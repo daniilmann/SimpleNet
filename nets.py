@@ -205,7 +205,7 @@ def simple_net(data, layers, **params):
         real_ret = real
         pred_ret = pred
 
-    if params.get('stats'):
+    if params.get('tools'):
         actions     = (np.sign(pred_ret[0]), np.sign(pred_ret[1]))
 
         if params.get('examples'):
@@ -283,8 +283,8 @@ def simple_net(data, layers, **params):
             f.write(model.to_json())
         json.dump(params, open(join(mpath, 'params.json'), 'wb'), indent=3)
         json.dump(layers, open(join(mpath, 'layers.json'), 'wb'), indent=3)
-        if params.get('stats'):
-            json.dump(stats, open(join(mpath, 'stats.json'), 'wb'), indent=3)
+        if params.get('tools'):
+            json.dump(stats, open(join(mpath, 'tools.json'), 'wb'), indent=3)
         if params.get('log'):
             copyfile('tmp/net.log', join(mpath, 'net.log'))
 

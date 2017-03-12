@@ -1,81 +1,62 @@
 # -*- encode: utf-8 -*-
 
-from os.path import join
-import pickle
+# frame_params = {
+#     'ix_columns'    : ['Date'],
+#     'ix_format'     : '%d%m%y',
+#     'preformat'     : {'Date': '{:06d}'},
+#     'pre_delete'    : ['Time', 'Volume'],
+#     'logret'        : {'Close': [1]},
+#     'post_delete'   : ['Open', 'High', 'Low']
+# }
+#
+# obs_params = {
+#     'units'     : 64,
+#     'punits'    : 1,
+#     'period'    : 'ED',
+#     'resample'  : 'SAT',
+#     'weekends'  : [5]
+# }
+#
+# params = {
+#
+# }
 
-import configs as cfg
-import dataworker as dw
-import nets as nn
+from keras.optimizers import Adadelta
+from keras.regularizers import l2
+from keras.layers.recurrent import GRU
+from keras.models import Sequential
+from keras.callbacks import EarlyStopping
 
-paths = []
-for s in ['GC', 'SP', 'HG']:
-    paths.append(join(cfg.data_path, s + '/' + s + '.csv'))
-data_params = {
-    'units':64,
-    'punits':1,
-    'period':'ED',
-    'ysum':False,
-    'order':False,
-    'vsplit':.45,
-    'tsplit':.65,
-    'split_iter':5000,
-    'waves':True,
-    'lvl':2,
-    'db':20,
-    'stats':False,
-    'dump_path' : join(cfg.data_path, 'reduced_ECL_')
-}
-dw.prepare(paths, **data_params)
-data = pickle.load(open(dw.gen_path(**data_params), 'rb'))
+import wavelet as wv
+from dataworker import dataworker as dw;from os.path import expanduser, join;import numpy as np
 
-lg = [
+layers = [
     {
-        'layer':'dense',
-        'output_dim':9,
-    },
-    {
-        'layer':'dense',
+        'layer':'gru',
         'output_dim':1,
-        'bias':False
+        'activation':'linear',
+        'inn_activation':'linear',
+        'b_reg':10.
     }
-
 ]
 
-params = {
-    'batch_size'    : 3,
-    'lr'            : 1.,
-    'opt'           : 'adadelta',
-    'loss'          : 'rmse',
-    'nb_epoch'      : 300,
-    'early'         : 10,
-    'verbose'       : 2,
-    'metrics'       : None,
-    'x_tag'           : 'Waves', # Price, Return, CReturn, Waves, CWaves
-    'y_tag'        : 'CReturn', # Price - Price, * - *
-    'x_lvl'         : -1,
-    'wpart'         : 'D', # A - D
-    'stats'         : True,
-    'plot'          : False,
-    'examples'      : True,
-    'dump_model'    : True,
-    'log'           : False,
-    'checkpoint'   : False
-}
+path = expanduser('~/Downloads')
+frame = dw.load_frame(join(path, 'EURUSD.csv'), 'DT', '%Y%m%d %H%M%S', columns=['DT', 'Close','Volume'], pre_delete=['Volume'], sep=';')
+frame['Ret'] = np.log(frame.Close / frame.Close.shift())
 
-data_params = {
-    'units':64,
-    'punits':1,
-    'period':'ED',
-    'ysum':True,
-    'waves':True,
-    'stats':False,
-    'order':False,
-    'lvl':2,
-    'db':20,
-    'dump_path' : join(dw.data_path, 'reduced_CL_')
-}
-dw.prepare([join(cfg.data_path, 'CL/CL.csv')], **data_params)
-test = pickle.load(open(dw.gen_path(**data_params), 'rb'))
+data = frame.tail(10000)
+obs = dw.gen_obs(data, 32, 5, 'ED')
+xs, ys = (obs[0]['Ret'] * 100).cumsum(1), (obs[1]['Ret'] * 100).sum(1)
+sxs = wv.smooth(xs, 3, 5)[:, np.newaxis, :]
+xs = xs[:, np.newaxis, :]
+ys = ys[:, np.newaxis]
+learn, test = (xs[:-1000], ys[:-1000], sxs[:-1000]), (xs[-1000:], ys[-1000:], sxs[-1000:])
 
-model = nn.simple_net(data, lg, **params)
-nn.evaluate(model, test, x_tag=params['x_tag'], y_tag=params['y_tag'], lvl=params['x_lvl'])
+model = Sequential()
+model.add(GRU(output_dim=1, input_shape=(1, 32), activation='linear', inner_activation='linear', b_regularizer=l2(10.)))
+model.compile(Adadelta(lr=1.), loss='mse')
+model.fit(learn[2], learn[1], batch_size=8, nb_epoch=10, validation_split=.3, verbose=2, callbacks=[EarlyStopping(patience=10)])
+
+pys = model.predict(test[2]).squeeze()
+print np.sum(np.sign(pys) * test[1].squeeze())
+print np.sum(np.sign(pys) == np.sign(test[1].squeeze())) / float(test[1].shape[0])

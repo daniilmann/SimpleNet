@@ -48,3 +48,8 @@ def kurtosis(x, axis=1, keepdims=True):
         return kurtosis(x, axis=axis)[:, np.newaxis]
     else:
         return kurtosis(x, axis=axis)
+
+def cumret(x, axis=1):
+    x[:, 0] = 0
+    x = x.cumsum(1)
+    return x
